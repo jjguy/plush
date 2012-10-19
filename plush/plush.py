@@ -30,17 +30,20 @@ import readline
 from time import time
 from cmd import Cmd
 
-from PyLucene import FrenchAnalyzer
-from PyLucene import GermanAnalyzer
-from PyLucene import KeywordAnalyzer
-from PyLucene import SimpleAnalyzer
-from PyLucene import StandardAnalyzer
-from PyLucene import StopAnalyzer
-from PyLucene import WhitespaceAnalyzer
-from PyLucene import QueryParser, IndexSearcher, FSDirectory
-from PyLucene import IndexReader, Sort, JavaError
-from PyLucene import VERSION, LUCENE_VERSION
-from PyLucene import IndexWriter, Field, Document, RAMDirectory
+#from PyLucene import FrenchAnalyzer
+#from PyLucene import GermanAnalyzer
+import lucene
+from lucene import KeywordAnalyzer
+from lucene import SimpleAnalyzer
+from lucene import StandardAnalyzer
+from lucene import StopAnalyzer
+from lucene import WhitespaceAnalyzer
+from lucene import QueryParser, IndexSearcher, FSDirectory, SimpleFSDirectory
+from lucene import IndexReader, Sort, JavaError
+from lucene import VERSION#, LUCENE_VERSION
+from lucene import Version
+from lucene import IndexWriter, Field, Document, RAMDirectory
+from lucene import File
 
 from version import __version__
 
@@ -174,7 +177,7 @@ class PlushBase:
         else:
             store_path = os.path.abspath(store_dir)
             try:
-                directory = FSDirectory.getDirectory(store_path, False)
+                directory = SimpleFSDirectory(File(store_path)) #TODO , False)
             except JavaError:
                 print "Error: %s Not found." % store_path
                 return
@@ -186,11 +189,11 @@ class PlushBase:
         print 'Opening store: %s' % store_path
         self.directory = directory
         self.store_path = store_path
+        # TODO - TaxonomyReader??
         self.index_reader = IndexReader.open(directory)
         self.fields = self.getFieldNames()
         self.fields.sort()
         self._connected = True
-
 
     def closeStore(self):
         """Close a lucene store."""
@@ -214,10 +217,17 @@ class PlushBase:
         return self.index_reader.numDocs()
 
     def getFieldNames(self):
-        """Return all index name from the index reader."""
-        if VERSION.startswith('1.9'):
-            return self.index_reader.getFieldNames()
-        return self.index_reader.getFieldNames(IndexReader.FieldOption.ALL)
+        """Return a unique list of field names that exist in this index."""
+        fields = {}
+        terms  = self.index_reader.terms()
+        while terms.next():
+            fields[terms.term().field()] = True
+        return fields.keys()
+
+        # TODO
+        #if VERSION.startswith('1.9'):
+        #    return self.index_reader.getFieldNames()
+        #return self.index_reader.getFieldNames(IndexReader.FieldOption.ALL)
 
     def getFields(self, doc_num=None):
         """Return fields of a doc."""
@@ -239,6 +249,7 @@ class PlushBase:
         fields = []
         doc = self.getDoc(doc_num)
         for name in self.fields:
+            # TODO - this form of getFields() is deprecated 
             mfields= doc.getFields(name)
             if not mfields:
                 fields.append((name, False, False, False, False, False,
@@ -248,7 +259,9 @@ class PlushBase:
                 fields.append((field.name(), field.isStored(),
                                field.isIndexed(),
                                field.isTokenized(), field.isBinary(),
-                               field.isCompressed(), field.stringValue()))
+                               False, field.stringValue()))
+                               #TODO
+                               #field.isCompressed(), field.stringValue()))
 
         return fields
 
@@ -306,13 +319,14 @@ class PlushBase:
 
     def initAnalyzers(self):
         """Init all analyzer."""
-        self.analyzers['French'] = FrenchAnalyzer()
-        self.analyzers['German'] = GermanAnalyzer()
-        self.analyzers['Keyword'] = KeywordAnalyzer()
-        self.analyzers['Simple'] = SimpleAnalyzer()
-        self.analyzers['Stop'] = StopAnalyzer()
-        self.analyzers['Standard'] = StandardAnalyzer()
-        self.analyzers['Whitespace'] = WhitespaceAnalyzer()
+        # TODO
+        #self.analyzers['French'] = FrenchAnalyzer()
+        #self.analyzers['German'] = GermanAnalyzer()
+        self.analyzers['Keyword'] = KeywordAnalyzer(Version.LUCENE_CURRENT)
+        self.analyzers['Simple'] = SimpleAnalyzer(Version.LUCENE_CURRENT)
+        self.analyzers['Stop'] = StopAnalyzer(Version.LUCENE_CURRENT)
+        self.analyzers['Standard'] = StandardAnalyzer(Version.LUCENE_CURRENT)
+        self.analyzers['Whitespace'] = WhitespaceAnalyzer(Version.LUCENE_CURRENT)
         nxlucene_home = os.getenv('NXLUCENE_HOME', None)
         if nxlucene_home:
             # point to http://svn.nuxeo.org/pub/NXLucene/trunk/src/nxlucene
@@ -336,11 +350,8 @@ class PlushBase:
     def displayAnalyzedQuery(self, text, field_name, analyzer_id=None):
         """Print analyzed tokens."""
         analyzer = self.getAnalyzer(analyzer_id)
-        tokens = [token.termText() for token in analyzer.tokenStream(
-            field_name, StringReader(text))]
-        print "  %s analyzer tokens: %s" % (
-            analyzer_id or self.default_analyzer_id,
-            ", ".join(tokens) )
+        tokens = [token.termText() for token in analyzer.tokenStream(field_name, StringReader(text))]
+        print "  %s analyzer tokens: %s" % (analyzer_id or self.default_analyzer_id, ", ".join(tokens) )
 
 #------------------------------------------------------------
 # mixin Cmd Plush
@@ -349,12 +360,12 @@ class Plush(Cmd, PlushBase):
     """Mixin plush and cmd class."""
 
     intro = """Welcome to Plush %s, a Lucene interactive terminal.
-Using PyLucene %s and Lucene %s.
+Using PyLucene %s and Lucene (TODO version).
 
   Type: \open [INDEX_PATH]    to open a lucene store
         \?                    for help
         \q or ^D              to quit.""" % (__version__,
-                                             VERSION, LUCENE_VERSION)
+                                             VERSION)#, LUCENE_VERSION)
     plush_attr = ('limit', 'select', 'default_field', 'sort_on',
                   'waterline', 'analyzer', 'trunc_size')
     default_field = 'contents'
@@ -454,10 +465,11 @@ Using PyLucene %s and Lucene %s.
             last_modified = "Unknown"
         print "* Index last modified        : %s" % last_modified
         print "* Index status               :",
-        if IndexReader.isLocked(directory):
-            print "LOCKED"
-        else:
-            print "unlocked"
+        # TODO
+        #if IndexReader.isLocked(directory):
+        #    print "LOCKED"
+        #else:
+        #    print "unlocked"
         print "* Has deletions              :",
         if self.index_reader.hasDeletions():
             print "YES"
@@ -835,6 +847,7 @@ class PlushProg:
 
     def run(self):
         """Run"""
+        lucene.initVM()
         plush = Plush(self.store)
         plush.cmdloop()
 
